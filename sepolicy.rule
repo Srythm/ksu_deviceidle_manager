@@ -1,0 +1,9 @@
+# DeviceIdle Manager - sepolicy.rule
+# Minimal rules for accessing deviceidle.xml
+
+# Allow the service to read/write system data files
+allow { domain -init } system_data_file:file { read write create getattr setattr unlink rename };
+allow { domain -init } system_data_file:dir { read search write add_name remove_name };
+
+# Allow inotify usage
+allow { domain -init } self:capability { dac_override dac_read_search };

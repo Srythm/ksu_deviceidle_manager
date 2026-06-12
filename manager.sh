@@ -34,6 +34,8 @@ normalize_pkg() {
 
 extract_packages() {
     sed -n \
+        -e 's/.*<whitelist[^>]* n="\([^"]*\)".*/\1/p' \
+        -e 's/.*<app[^>]* n="\([^"]*\)".*/\1/p' \
         -e 's/.*<wl[^>]* n="\([^"]*\)".*/\1/p' \
         -e 's/.*packageName="\([^"]*\)".*/\1/p' \
         -e 's/.*package="\([^"]*\)".*/\1/p' \
@@ -57,7 +59,12 @@ write_xml_from_list() {
             sort -u "$list" | while read -r pkg; do
                 pkg="$(normalize_pkg "$pkg")"
                 case "$pkg" in
-                    *.*) echo "    <wl n=\"$pkg\" />" ;;
+                    *.*)
+                        echo "    <!-- Battery optimization (power-save) whitelist -->"
+                        echo "    <whitelist n=\"$pkg\" />"
+                        echo "    <!-- Doze idle whitelist -->"
+                        echo "    <app n=\"$pkg\" />"
+                        ;;
                 esac
             done
         fi

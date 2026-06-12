@@ -240,7 +240,15 @@ async function parseDeviceIdleXml(path) {
 }
 
 async function generateDeviceIdleXml(packages) {
-    const lines = packages.map(pkg => `    <wl n="${pkg}" />`);
+    const lines = [];
+    for (const pkg of packages) {
+        // Battery optimization (power-save) whitelist
+        lines.push(`    <!-- Battery optimization (power-save) whitelist -->`);
+        lines.push(`    <whitelist n="${pkg}" />`);
+        // Doze idle whitelist
+        lines.push(`    <!-- Doze idle whitelist -->`);
+        lines.push(`    <app n="${pkg}" />`);
+    }
     return `<?xml version="1.0" encoding="utf-8"?>\n<config>\n${lines.join('\n')}\n</config>`;
 }
 
@@ -295,6 +303,26 @@ async function loadPackages() {
     updateStats();
 }
 
+async function runtimeSync(pkg) {
+    // 1. Add to DeviceIdleController runtime whitelist
+    const wlResult = await runCmd(`cmd deviceidle whitelist +${shellQuote(pkg)}`, 5000);
+    if (!wlResult.success) {
+        await runCmd(`dumpsys deviceidle whitelist +${shellQuote(pkg)}`, 5000);
+    }
+
+    // 2. Allow app to run in background via AppOps
+    await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_ANY_IN_BACKGROUND allow`, 5000);
+    await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_IN_BACKGROUND allow`, 5000);
+
+    console.log('[DeviceIdle] Runtime sync for:', pkg);
+}
+
+async function runtimeSyncAll() {
+    for (const pkg of currentPackages) {
+        await runtimeSync(pkg);
+    }
+}
+
 async function savePackages() {
     if (isProcessing) return false;
     isProcessing = true;
@@ -307,15 +335,17 @@ async function savePackages() {
             .join(',');
         const syncResult = await runCmd(`sh "${MANAGER}" set-list ${shellQuote(csv)}`, 10000);
         
-        isProcessing = false;
-        
         if (syncResult.success) {
+            // Runtime sync after file save
+            await runtimeSyncAll();
             showToast('配置已保存并同步');
             updateStats();
+            isProcessing = false;
             return true;
         } else {
             console.error('[DeviceIdle] Sync failed:', syncResult.stderr);
             showToast('同步到系统失败: ' + syncResult.stderr, 'error');
+            isProcessing = false;
             return false;
         }
     } catch (e) {
@@ -379,6 +409,14 @@ window.removePackage = async function(pkg) {
     
     currentPackages.splice(idx, 1);
     await savePackages();
+    
+    // Also remove from runtime whitelist
+    await runCmd(`cmd deviceidle whitelist -${shellQuote(pkg)}`, 5000);
+    await runCmd(`dumpsys deviceidle whitelist -${shellQuote(pkg)}`, 5000);
+    // Reset appops to default
+    await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_ANY_IN_BACKGROUND default`, 5000);
+    await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_IN_BACKGROUND default`, 5000);
+    
     updateAppList(document.getElementById('search-input')?.value || '');
     showToast('已移除: ' + pkg);
 };
@@ -696,6 +734,8 @@ async function init() {
     // 然后加载数据（即使失败也不阻塞）
     try {
         await loadPackages();
+        // 初始化完成后执行一次运行时同步
+        await runtimeSyncAll();
     } catch (e) {
         console.error('[DeviceIdle] Initialization failed:', e);
         showToast('初始化失败: ' + e.message, 'error');

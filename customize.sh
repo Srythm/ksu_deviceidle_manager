@@ -20,7 +20,7 @@ if [ -f "$OLD_MODDIR/backup/original_deviceidle.xml" ]; then
     [ -d "$OLD_MODDIR/active" ] && cp -af "$OLD_MODDIR/active/." "$ACTIVE_DIR/" 2>/dev/null
 fi
 
-if [ -x "$MODPATH/manager.sh" ]; then
+if [ -f "$MODPATH/manager.sh" ]; then
     if [ -f "$BACKUP_DIR/original_deviceidle.xml" ]; then
         ui_print "[*] Original backup already exists; not overwriting"
     elif [ -f "$TARGET_FILE" ]; then

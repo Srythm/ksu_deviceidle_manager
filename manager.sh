@@ -59,12 +59,7 @@ write_xml_from_list() {
             sort -u "$list" | while read -r pkg; do
                 pkg="$(normalize_pkg "$pkg")"
                 case "$pkg" in
-                    *.*)
-                        echo "    <!-- Battery optimization (power-save) whitelist -->"
-                        echo "    <whitelist n=\"$pkg\" />"
-                        echo "    <!-- Doze idle whitelist -->"
-                        echo "    <app n=\"$pkg\" />"
-                        ;;
+                    *.*) echo "    <wl n=\"$pkg\" />" ;;
                 esac
             done
         fi
@@ -72,6 +67,42 @@ write_xml_from_list() {
     } > "$tmp"
 
     mv -f "$tmp" "$out"
+}
+
+# Runtime sync: apply whitelist to running system services
+# This is critical for ColorOS/OxygenOS and Android 14+
+runtime_sync() {
+    if [ ! -f "$LIST_FILE" ]; then
+        return 0
+    fi
+
+    log_msg "Runtime sync starting..."
+
+    while read -r pkg; do
+        [ -z "$pkg" ] && continue
+
+        # 1. DeviceIdleController runtime whitelist
+        if cmd deviceidle whitelist +"$pkg" >/dev/null 2>&1; then
+            log_msg "deviceidle whitelist: $pkg"
+        elif dumpsys deviceidle whitelist +"$pkg" >/dev/null 2>&1; then
+            log_msg "dumpsys deviceidle whitelist: $pkg"
+        fi
+
+        # 2. AppOps: allow background running
+        if cmd appops set "$pkg" RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1; then
+            log_msg "appops RUN_ANY_IN_BACKGROUND allow: $pkg"
+        fi
+        if cmd appops set "$pkg" RUN_IN_BACKGROUND allow >/dev/null 2>&1; then
+            log_msg "appops RUN_IN_BACKGROUND allow: $pkg"
+        fi
+
+        # 3. ActivityManager: ensure app is not marked inactive
+        if am set-inactive "$pkg" false >/dev/null 2>&1; then
+            log_msg "am set-inactive false: $pkg"
+        fi
+    done < "$LIST_FILE"
+
+    log_msg "Runtime sync complete"
 }
 
 sync_list_from_active() {
@@ -126,6 +157,10 @@ apply_active() {
     chattr +i "$TARGET_FILE" 2>/dev/null
     md5sum "$TARGET_FILE" 2>/dev/null | awk '{print $1}' > "$HASH_FILE"
     log_msg "Active config applied"
+
+    # Runtime sync to running system services
+    sync_list_from_active
+    runtime_sync
 }
 
 set_list_csv() {

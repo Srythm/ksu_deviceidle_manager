@@ -240,15 +240,7 @@ async function parseDeviceIdleXml(path) {
 }
 
 async function generateDeviceIdleXml(packages) {
-    const lines = [];
-    for (const pkg of packages) {
-        // Battery optimization (power-save) whitelist
-        lines.push(`    <!-- Battery optimization (power-save) whitelist -->`);
-        lines.push(`    <whitelist n="${pkg}" />`);
-        // Doze idle whitelist
-        lines.push(`    <!-- Doze idle whitelist -->`);
-        lines.push(`    <app n="${pkg}" />`);
-    }
+    const lines = packages.map(pkg => `    <wl n="${pkg}" />`);
     return `<?xml version="1.0" encoding="utf-8"?>\n<config>\n${lines.join('\n')}\n</config>`;
 }
 
@@ -313,6 +305,9 @@ async function runtimeSync(pkg) {
     // 2. Allow app to run in background via AppOps
     await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_ANY_IN_BACKGROUND allow`, 5000);
     await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_IN_BACKGROUND allow`, 5000);
+
+    // 3. ColorOS/OxygenOS: ensure app is not marked inactive
+    await runCmd(`am set-inactive ${shellQuote(pkg)} false`, 5000);
 
     console.log('[DeviceIdle] Runtime sync for:', pkg);
 }
@@ -416,6 +411,8 @@ window.removePackage = async function(pkg) {
     // Reset appops to default
     await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_ANY_IN_BACKGROUND default`, 5000);
     await runCmd(`cmd appops set ${shellQuote(pkg)} RUN_IN_BACKGROUND default`, 5000);
+    // ColorOS/OxygenOS: mark app as inactive
+    await runCmd(`am set-inactive ${shellQuote(pkg)} true`, 5000);
     
     updateAppList(document.getElementById('search-input')?.value || '');
     showToast('已移除: ' + pkg);
